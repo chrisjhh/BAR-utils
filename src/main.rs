@@ -18,7 +18,11 @@ struct Args {
 #[derive(Subcommand)]
 enum Command {
     /// List details about the BARFile
-    Details,
+    Details {
+        /// Whether to show additional compression details
+        #[arg(short, long)]
+        compression: bool,
+    },
 }
 
 fn main() {
@@ -29,7 +33,7 @@ fn main() {
         exit(1);
     }
     let path = path.unwrap();
-    let bar = BARFile::open(path.to_str().unwrap());
+    let bar = BARFile::open(path);
     if let Err(error) = bar {
         println!("Error opening BARFile.");
         println!("{}", error);
@@ -38,8 +42,8 @@ fn main() {
     let bar = bar.unwrap();
 
     match &args.command {
-        Some(Command::Details) => {
-            details(bar);
+        Some(Command::Details { compression }) => {
+            details(bar, *compression);
         }
         None => (),
     }

@@ -1,6 +1,9 @@
 use biblearchive::BARFile;
 use humansize;
-use std::io::{Read, Seek};
+use std::{
+    io::{Read, Seek},
+    time::Duration,
+};
 
 macro_rules! oprintln {
     ($out:ident, $($arg:tt)*) => {
@@ -9,7 +12,7 @@ macro_rules! oprintln {
     };
 }
 
-pub fn details<T: Read + Seek>(bar: BARFile<T>) -> Vec<String> {
+pub fn details<T: Read + Seek>(bar: BARFile<T>, compression_details: bool) -> Vec<String> {
     let mut output: Vec<String> = Vec::new();
     let mut pending: Vec<String> = Vec::new();
     oprintln!(output, "Version {}", bar.archive_version());
@@ -70,5 +73,38 @@ pub fn details<T: Read + Seek>(bar: BARFile<T>) -> Vec<String> {
             oprintln!(output, "{}", line);
         }
     }
+
+    if compression_details {
+        let mut compressed_size: u32 = 0;
+        let mut uncompressed_size: u32 = 0;
+        let mut decompress_time: Duration = Duration::from_secs(0);
+        for book in bar.books() {
+            for chapter in book.chapters() {
+                if let Some(chapt) = chapter {
+                    if let Ok(details) = chapt.details() {
+                        compressed_size += details.compressed_size;
+                        uncompressed_size += details.uncompressed_size;
+                        decompress_time += details.decompress_time;
+                    }
+                }
+            }
+        }
+        oprintln!(
+            output,
+            "Uncompressed size: {}",
+            humansize::format_size(uncompressed_size, humansize::BINARY)
+        );
+        oprintln!(
+            output,
+            "Compressed size: {}",
+            humansize::format_size(compressed_size, humansize::BINARY)
+        );
+        oprintln!(
+            output,
+            "Decompression time: {} ms",
+            decompress_time.as_millis()
+        );
+    }
+
     output
 }
