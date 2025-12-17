@@ -1,5 +1,6 @@
 use biblearchive::BARFile;
 use humansize;
+use std::collections::HashMap;
 use std::{
     io::{Read, Seek},
     time::Duration,
@@ -79,6 +80,7 @@ pub fn details<T: Read + Seek>(bar: BARFile<T>, compression_details: bool) -> Ve
         let mut compressed_size: u32 = 0;
         let mut uncompressed_size: u32 = 0;
         let mut decompress_time: Duration = Duration::from_secs(0);
+        let mut compression_algorithms: HashMap<String, u32> = HashMap::new();
         for book in bar.books() {
             for chapter in book.chapters() {
                 if let Some(chapt) = chapter {
@@ -86,6 +88,14 @@ pub fn details<T: Read + Seek>(bar: BARFile<T>, compression_details: bool) -> Ve
                         compressed_size += details.compressed_size;
                         uncompressed_size += details.uncompressed_size;
                         decompress_time += details.decompress_time;
+                        let k = details.compression_algorithm.to_string();
+                        if compression_algorithms.contains_key(&k) {
+                            if let Some(val) = compression_algorithms.get_mut(&k) {
+                                *val += 1;
+                            }
+                        } else {
+                            compression_algorithms.insert(k, 1);
+                        }
                     }
                 }
             }
@@ -102,6 +112,21 @@ pub fn details<T: Read + Seek>(bar: BARFile<T>, compression_details: bool) -> Ve
         );
         let compression = (uncompressed_size - file_size as u32) as f64 / uncompressed_size as f64;
         oprintln!(output, "Compression: {:.0}%", compression * 100.0);
+
+        // Compression algorithms used
+        let mut total = 0;
+        for (_, val) in compression_algorithms.iter() {
+            total += val;
+        }
+        for (key, val) in compression_algorithms.iter() {
+            oprintln!(
+                output,
+                "Used compression {}: {:.0}%",
+                key,
+                ((val * 100) as f64 / total as f64)
+            );
+        }
+
         oprintln!(
             output,
             "Decompression time: {} ms",
