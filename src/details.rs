@@ -6,13 +6,6 @@ use std::{
     time::Duration,
 };
 
-macro_rules! oprintln {
-    ($out:ident, $($arg:tt)*) => {
-        $out.push(format!($($arg)*));
-        println!($($arg)*);
-    };
-}
-
 pub fn details<T: Read + Seek>(bar: BARFile<T>, compression_details: bool) -> Vec<String> {
     let mut output: Vec<String> = Vec::new();
     let mut pending: Vec<String> = Vec::new();

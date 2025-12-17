@@ -1,5 +1,5 @@
 use biblearchive::BARFile;
-use biblearchive_utils::details;
+use biblearchive_utils::{details, verse};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::exit;
@@ -23,6 +23,11 @@ enum Command {
         #[arg(short, long)]
         compression: bool,
     },
+    /// Fetch one or more verses
+    Verse {
+        /// Reference to the verses to fetch e.g. "Ge 1:1"
+        verses: Vec<String>,
+    },
 }
 
 fn main() {
@@ -44,6 +49,9 @@ fn main() {
     match &args.command {
         Some(Command::Details { compression }) => {
             details(bar, *compression);
+        }
+        Some(Command::Verse { verses }) => {
+            verse(bar, verses);
         }
         None => (),
     }
