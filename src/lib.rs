@@ -17,10 +17,11 @@ pub fn details<T: Read + Seek>(bar: BARFile<T>, compression_details: bool) -> Ve
     let mut pending: Vec<String> = Vec::new();
     oprintln!(output, "Version {}", bar.archive_version());
     oprintln!(output, "{}", bar.bible_version());
+    let file_size = bar.len();
     oprintln!(
         output,
         "Size: {}",
-        humansize::format_size(bar.len(), humansize::BINARY)
+        humansize::format_size(file_size, humansize::BINARY)
     );
 
     let mut all_present = true;
@@ -99,10 +100,18 @@ pub fn details<T: Read + Seek>(bar: BARFile<T>, compression_details: bool) -> Ve
             "Compressed size: {}",
             humansize::format_size(compressed_size, humansize::BINARY)
         );
+        let compression = (uncompressed_size - file_size as u32) as f64 / uncompressed_size as f64;
+        oprintln!(output, "Compression: {:.0}%", compression * 100.0);
         oprintln!(
             output,
             "Decompression time: {} ms",
             decompress_time.as_millis()
+        );
+        let speed = uncompressed_size as f64 / (decompress_time.as_secs_f64() * 1000.0);
+        oprintln!(
+            output,
+            "Decompression speed: {}/ms",
+            humansize::format_size(speed as u64, humansize::BINARY)
         );
     }
 
