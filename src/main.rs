@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::exit;
 
 #[derive(Parser)]
-#[command(version, about, long_about = None)]
+#[command(version, about, long_about = None, arg_required_else_help = true)]
 struct Args {
     /// Specify the path to the BARFile to use
     #[arg(short, long)]
