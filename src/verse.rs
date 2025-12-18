@@ -1,8 +1,23 @@
 use bible_data::parse_book_abbrev;
 use biblearchive::BARFile;
+use std::error::Error;
 use std::io::{Read, Seek};
 
-pub fn verse<T: Read + Seek>(bar: BARFile<T>, verses: &Vec<String>) -> Vec<String> {
+pub fn verse<T: Read + Seek>(bar: BARFile<T>, verses: &Vec<String>) -> i32 {
+    match verse_internal(bar, verses) {
+        Err(error) => {
+            eprintln!("Error while fetching verses: {:?}", verses);
+            eprintln!("{}", error);
+            1
+        }
+        Ok(_) => 0,
+    }
+}
+
+fn verse_internal<T: Read + Seek>(
+    bar: BARFile<T>,
+    verses: &Vec<String>,
+) -> Result<Vec<String>, Box<dyn Error>> {
     let mut output: Vec<String> = Vec::new();
     for verse in verses {
         let book = parse_book_abbrev(verse);
@@ -36,11 +51,10 @@ pub fn verse<T: Read + Seek>(bar: BARFile<T>, verses: &Vec<String>) -> Vec<Strin
 
         if let Some(book) = bar.book((book + 1) as u8) {
             if let Some(chapt) = book.chapter(chapt) {
-                if let Ok(verse_text) = chapt.verse_text(verse_number) {
-                    oprintln!(output, "{} {}", verse, verse_text);
-                }
+                let verse_text = chapt.verse_text(verse_number)?;
+                oprintln!(output, "{} {}", verse, verse_text);
             }
         }
     }
-    output
+    Ok(output)
 }
