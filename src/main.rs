@@ -28,6 +28,27 @@ enum Command {
         /// Reference to the verses to fetch e.g. "Ge 1:1"
         verses: Vec<String>,
     },
+    /// Perform a search for matching verses
+    Search {
+        /// The phrase or pattern to match. eg. "edge of the sword", /prais(es?|ing|ed)/
+        #[arg(short, long)]
+        matching: Vec<String>,
+        /// Phrases or patterns to exclude. eg. "edge of the sword", /prais(es?|ing|ed)/
+        #[arg(short, long)]
+        notmatching: Vec<String>,
+        /// The word(s) that must be present
+        #[arg(short, long)]
+        word: Vec<String>,
+        /// The word(s) that must not be present
+        #[arg(short, long)]
+        badword: Vec<String>,
+        /// The books or chapters to include. eg. NT, OT, Ge, 1Sa..2Ch, "Ps 119"
+        #[arg(short, long)]
+        include: Vec<String>,
+        /// The books or chapters to exclude. eg. NT, OT, Ge, 1Sa..2Ch, "Ps 119"
+        #[arg(short = 'x', long)]
+        exclude: Vec<String>,
+    },
 }
 
 fn main() {
@@ -53,6 +74,14 @@ fn main() {
         Some(Command::Verse { verses }) => {
             verse(bar, verses);
         }
+        Some(Command::Search {
+            matching: _,
+            notmatching: _,
+            word: _,
+            badword: _,
+            include: _,
+            exclude: _,
+        }) => {}
         None => (),
     }
 }
