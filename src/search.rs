@@ -1,5 +1,5 @@
 use super::SearchArgs;
-use bible_data::parse_book_abbrev;
+use bible_data::{BOOK_ABBREVS, parse_book_abbrev};
 use biblearchive::BARFile;
 use std::{
     collections::HashMap,
@@ -141,11 +141,43 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
         }
     }
     for book in bar.books_in_order() {
-        let i = book.book_number() as u32;
-        let should_proccess = book_filters.iter().fold(true, |acc, f| f(acc, i));
+        let b = book.book_number() as u32;
+        let should_proccess = book_filters.iter().fold(true, |acc, f| f(acc, b));
         if !should_proccess {
             continue;
         }
-        println!("Processing {}", book.book_name());
+        let book_chapt_filters = &chapter_filters.get_mut(&b);
+        for chapter in book.chapters() {
+            if chapter.is_none() {
+                continue;
+            }
+            let chapter = chapter.unwrap();
+            let c = chapter.chapter_number() as u32;
+            if let Some(filters) = book_chapt_filters {
+                let should_proccess = filters.iter().fold(true, |acc, f| f(acc, c));
+                if !should_proccess {
+                    continue;
+                }
+                for (v, verse) in chapter.enumerated_verses() {
+                    let mut should_process = true;
+                    for m in params.matching.iter() {
+                        let is_exclude = m.starts_with("!");
+                        let mut s = &m[..];
+                        if is_exclude {
+                            s = &m[1..];
+                        }
+                        let found = verse.find(s);
+                        if found.is_some() == is_exclude {
+                            should_process = false;
+                            break;
+                        }
+                    }
+                    if !should_process {
+                        continue;
+                    }
+                    println!("{} {}:{} {}", BOOK_ABBREVS[b as usize - 1], c, v, verse);
+                }
+            }
+        }
     }
 }
