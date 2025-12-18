@@ -24,16 +24,15 @@ fn main() {
             details(bar, *compression);
             0
         }
-        Some(Command::Verse { verses }) => {
-            verse(bar, verses);
-        }
+        Some(Command::Verse { verses }) => verse(bar, verses),
         Some(Command::Search(params)) => {
             search(bar, params);
+            0
         }
         None => {
             eprintln!("No command specified.");
             1
-        },
+        }
     };
     exit(status);
 }
