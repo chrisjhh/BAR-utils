@@ -8,6 +8,14 @@ pub struct Args {
     #[arg(short, long)]
     pub file: Option<PathBuf>,
 
+    /// Specify the path to the data directory containing BARFiles
+    #[arg(short, long, env = "BAR_DATADIR")]
+    pub datadir: Option<PathBuf>,
+
+    /// Specify which version to use from the BARFiles in the datadir
+    #[arg(short, long, env = "BAR_DEFAULT_VERSION")]
+    pub ver: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }

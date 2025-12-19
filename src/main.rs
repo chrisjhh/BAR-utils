@@ -1,14 +1,52 @@
 use biblearchive::BARFile;
 use biblearchive_utils::{Args, Command, details, search, verse};
 use clap::Parser;
+use std::fs;
 use std::process::exit;
 
 fn main() {
     let args = Args::parse();
-    let path = args.file.as_deref();
+    // First see if an explicit path has been specified
+    let mut path = args.file;
     if path.is_none() {
-        eprintln!("Path to BARFile not specified.");
-        exit(1);
+        // Try to get the path from the data dir and the version
+        if let Some(dir) = args.datadir {
+            if !fs::exists(&dir).unwrap_or(false) {
+                eprintln!(
+                    "Path specified for datadir does not exist: {}",
+                    dir.to_string_lossy()
+                );
+                exit(1);
+            }
+            if let Some(version) = args.ver {
+                // Try .bar file extension fist
+                let mut bar_path = dir.clone();
+                bar_path.push(format!("{}.bar", version));
+                if fs::exists(&bar_path).unwrap_or(false) {
+                    path = Some(bar_path);
+                } else {
+                    // Try .ibar file extension next
+                    let mut ibar_path = dir.clone();
+                    ibar_path.push(format!("{}.ibar", version));
+                    if fs::exists(&ibar_path).unwrap_or(false) {
+                        path = Some(ibar_path);
+                    } else {
+                        eprintln!(
+                            "Cannot find version {} in directory {}.",
+                            version,
+                            dir.to_string_lossy()
+                        );
+                        exit(1);
+                    }
+                }
+            } else {
+                eprintln!("No path to BARFile or version from datadir specified.");
+                exit(1);
+            }
+        } else {
+            eprintln!("Path to BARFile not specified.");
+            exit(1);
+        }
     }
     let path = path.unwrap();
     let bar = BARFile::open(path);
