@@ -1,7 +1,7 @@
 use super::SearchArgs;
 use bible_data::{BOOK_ABBREVS, parse_book_abbrev};
 use biblearchive::BARFile;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use std::{
     collections::HashMap,
     io::{Read, Seek},
@@ -53,9 +53,14 @@ fn match_regex(regex: Regex) -> impl Fn(&str) -> bool {
 fn match_word(word: &str) -> Box<dyn Fn(&str) -> bool> {
     // Get rid of any non alpha-numerics
     let safe = word.replace(|c: char| !c.is_ascii_alphanumeric() && c != ' ', "");
+    // If word is all lower-case assume we want case-insensitive search
+    let ignore_case = safe.chars().all(|c| c.is_ascii_lowercase());
     // Convert to a regex that will match on word boundaries
     let regex = format!(r"\b{}\b", safe);
-    match Regex::new(&regex) {
+    match RegexBuilder::new(&regex)
+        .case_insensitive(ignore_case)
+        .build()
+    {
         Ok(re) => Box::new(match_regex(re)),
         Err(_) => Box::new(|_| false),
     }
@@ -179,9 +184,14 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
         }
         // Test for regexp
         let filter: Box<dyn Fn(&str) -> bool>;
-        if s.starts_with("/") && s.ends_with("/") {
-            let s = s[1..s.len() - 1].to_string();
-            let regex = Regex::new(&s);
+        if s.starts_with("/") && (s.ends_with("/") || s.ends_with("/i")) {
+            let mut ignore_case = false;
+            if s.ends_with("i") {
+                ignore_case = true;
+                s = &s[..s.len() - 1];
+            }
+            s = &s[1..s.len() - 1];
+            let regex = RegexBuilder::new(s).case_insensitive(ignore_case).build();
             if regex.is_err() {
                 eprint!("Invalid regexp in arg for --include: {}", s);
                 return;
@@ -219,6 +229,7 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
 
     // Process the books, chapters and verses and find the matches
     // using the created filters
+    let mut count = 0;
     for book in bar.books_in_order() {
         let b = book.book_number() as u32;
         let should_proccess = book_filters.iter().fold(true, |acc, f| f(acc, b));
@@ -230,6 +241,7 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
             if chapter.is_none() {
                 continue;
             }
+            let mut chapter_count = 0;
             let chapter = chapter.unwrap();
             let c = chapter.chapter_number() as u32;
             if let Some(filters) = book_chapt_filters {
@@ -246,8 +258,21 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
                 if !should_process {
                     continue;
                 }
-                println!("{} {}:{} {}", BOOK_ABBREVS[b as usize - 1], c, v, verse);
+                if !params.count {
+                    println!("{} {}:{} {}", BOOK_ABBREVS[b as usize - 1], c, v, verse);
+                }
+                chapter_count += 1;
+                count += 1;
+            }
+            if params.count && chapter_count > 0 {
+                // Display count if count is above threshold
+                if params.threshold.is_none() || chapter_count >= params.threshold.unwrap() {
+                    println!("{} {}: {}", BOOK_ABBREVS[b as usize - 1], c, chapter_count);
+                }
             }
         }
+    }
+    if params.count {
+        println!("Total: {}", count);
     }
 }
