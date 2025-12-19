@@ -170,6 +170,7 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
 
     // Match and exclude filters for verses
     for m in params.matching.iter() {
+        let m = m.to_string();
         let is_exclude = m.starts_with("!");
         let is_required = m.starts_with("+");
         let mut s = &m[..];
@@ -177,17 +178,18 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
             s = &m[1..];
         }
         // Test for regexp
-        let mut filter: Box<dyn Fn(&str) -> bool>;
+        let filter: Box<dyn Fn(&str) -> bool>;
         if s.starts_with("/") && s.ends_with("/") {
-            s = &s[1..s.len() - 1];
-            let regex = Regex::new(s);
+            let s = s[1..s.len() - 1].to_string();
+            let regex = Regex::new(&s);
             if regex.is_err() {
                 eprint!("Invalid regexp in arg for --include: {}", s);
                 return;
             }
             filter = Box::new(match_regex(regex.unwrap()));
+        } else {
+            filter = Box::new(match_phrase(s.to_string()));
         }
-        filter = Box::new(match_phrase(s.to_string()));
         if is_exclude {
             exclude_filters.push(filter);
         } else if is_required {
