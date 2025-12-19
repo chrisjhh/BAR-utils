@@ -1,6 +1,7 @@
 use super::SearchArgs;
 use bible_data::{BOOK_ABBREVS, parse_book_abbrev};
 use biblearchive::BARFile;
+use regex::Regex;
 use std::{
     collections::HashMap,
     io::{Read, Seek},
@@ -40,11 +41,37 @@ fn include_item_range(book_range: RangeInclusive<u32>) -> impl Fn(bool, u32) -> 
     }
 }
 
+// Verse text filters
+fn match_phrase(phrase: String) -> impl Fn(&str) -> bool {
+    move |verse| verse.find(&phrase).is_some()
+}
+
+fn match_regex(regex: Regex) -> impl Fn(&str) -> bool {
+    move |verse| regex.is_match(verse)
+}
+
+fn match_word(word: &str) -> Box<dyn Fn(&str) -> bool> {
+    // Get rid of any non alpha-numerics
+    let safe = word.replace(|c: char| !c.is_ascii_alphanumeric() && c != ' ', "");
+    // Convert to a regex that will match on word boundaries
+    let regex = format!(r"\b{}\b", safe);
+    match Regex::new(&regex) {
+        Ok(re) => Box::new(match_regex(re)),
+        Err(_) => Box::new(|_| false),
+    }
+}
+
 #[allow(unused_assignments)]
 pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
-    // Process the book filters
+    // Set up the filters required
     let mut book_filters: Vec<Box<dyn Fn(bool, u32) -> bool>> = Vec::new();
     let mut chapter_filters: HashMap<u32, Vec<Box<dyn Fn(bool, u32) -> bool>>> = HashMap::new();
+    let mut match_filters: Vec<Box<dyn Fn(&str) -> bool>> = Vec::new();
+    let mut must_match_filters: Vec<Box<dyn Fn(&str) -> bool>> = Vec::new();
+    let mut exclude_filters: Vec<Box<dyn Fn(&str) -> bool>> = Vec::new();
+
+    // Parse the arguments to populate the filters
+    // Path includes for books and chapters
     for m in params.include.iter() {
         let is_exclude = m.starts_with("!");
         let mut s = &m[..];
@@ -140,6 +167,56 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
             });
         }
     }
+
+    // Match and exclude filters for verses
+    for m in params.matching.iter() {
+        let is_exclude = m.starts_with("!");
+        let is_required = m.starts_with("+");
+        let mut s = &m[..];
+        if is_exclude || is_required {
+            s = &m[1..];
+        }
+        // Test for regexp
+        let mut filter: Box<dyn Fn(&str) -> bool>;
+        if s.starts_with("/") && s.ends_with("/") {
+            s = &s[1..s.len() - 1];
+            let regex = Regex::new(s);
+            if regex.is_err() {
+                eprint!("Invalid regexp in arg for --include: {}", s);
+                return;
+            }
+            filter = Box::new(match_regex(regex.unwrap()));
+        }
+        filter = Box::new(match_phrase(s.to_string()));
+        if is_exclude {
+            exclude_filters.push(filter);
+        } else if is_required {
+            must_match_filters.push(filter);
+        } else {
+            match_filters.push(filter);
+        }
+    }
+
+    // Same again for words
+    for m in params.word.iter() {
+        let is_exclude = m.starts_with("!");
+        let is_required = m.starts_with("+");
+        let mut s = &m[..];
+        if is_exclude || is_required {
+            s = &m[1..];
+        }
+        let filter = match_word(s);
+        if is_exclude {
+            exclude_filters.push(filter);
+        } else if is_required {
+            must_match_filters.push(filter);
+        } else {
+            match_filters.push(filter);
+        }
+    }
+
+    // Process the books, chapters and verses and find the matches
+    // using the created filters
     for book in bar.books_in_order() {
         let b = book.book_number() as u32;
         let should_proccess = book_filters.iter().fold(true, |acc, f| f(acc, b));
@@ -158,25 +235,16 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
                 if !should_proccess {
                     continue;
                 }
-                for (v, verse) in chapter.enumerated_verses() {
-                    let mut should_process = true;
-                    for m in params.matching.iter() {
-                        let is_exclude = m.starts_with("!");
-                        let mut s = &m[..];
-                        if is_exclude {
-                            s = &m[1..];
-                        }
-                        let found = verse.find(s);
-                        if found.is_some() == is_exclude {
-                            should_process = false;
-                            break;
-                        }
-                    }
-                    if !should_process {
-                        continue;
-                    }
-                    println!("{} {}:{} {}", BOOK_ABBREVS[b as usize - 1], c, v, verse);
+            }
+            for (v, verse) in chapter.enumerated_verses() {
+                let should_process = (match_filters.is_empty()
+                    || match_filters.iter().any(|f| f(&verse)))
+                    && must_match_filters.iter().all(|f| f(&verse))
+                    && !exclude_filters.iter().any(|f| f(&verse));
+                if !should_process {
+                    continue;
                 }
+                println!("{} {}:{} {}", BOOK_ABBREVS[b as usize - 1], c, v, verse);
             }
         }
     }
