@@ -341,4 +341,25 @@ mod tests {
             ]
         )
     }
+
+    #[test]
+    fn test_ps119_praise() {
+        let params = SearchArgs {
+            matching: vec!["/praise/".to_string()],
+            word: vec![],
+            include: vec!["Ps 119".to_string()],
+            count: false,
+            threshold: None,
+        };
+        let output = search_internal(barfile(), &params).unwrap();
+        assert_eq!(
+            output,
+            vec![
+                "Ps 119:7 I will praise thee with uprightness of heart, when I shall have learned thy righteous judgments.",
+                "Ps 119:164 Seven times a day do I praise thee because of thy righteous judgments.",
+                "Ps 119:171 My lips shall utter praise, when thou hast taught me thy statutes.",
+                "Ps 119:175 Let my soul live, and it shall praise thee; and let thy judgments help me."
+            ]
+        )
+    }
 }
