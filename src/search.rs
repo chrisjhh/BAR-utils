@@ -4,6 +4,7 @@ use biblearchive::BARFile;
 use regex::{Regex, RegexBuilder};
 use std::{
     collections::HashMap,
+    error::Error,
     io::{Read, Seek},
     ops::RangeInclusive,
 };
@@ -66,8 +67,22 @@ fn match_word(word: &str) -> Box<dyn Fn(&str) -> bool> {
     }
 }
 
-#[allow(unused_assignments)]
-pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
+pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) -> i32 {
+    match search_internal(bar, params) {
+        Err(error) => {
+            eprintln!("Error while performing search");
+            eprintln!("{}", error);
+            1
+        }
+        Ok(_) => 0,
+    }
+}
+
+fn search_internal<T: Read + Seek>(
+    bar: BARFile<T>,
+    params: &SearchArgs,
+) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut output: Vec<String> = Vec::new();
     // Set up the filters required
     let mut book_filters: Vec<Box<dyn Fn(bool, u32) -> bool>> = Vec::new();
     let mut chapter_filters: HashMap<u32, Vec<Box<dyn Fn(bool, u32) -> bool>>> = HashMap::new();
@@ -88,7 +103,7 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
         }
         // Check for range cases
         if s == "OT" || s == "NT" || (s.contains("..") && !s.contains(" ")) {
-            let mut range = 1_u32..=66_u32;
+            let range;
             if s == "OT" {
                 range = 1..=39;
             } else if s == "NT" {
@@ -96,23 +111,21 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
             } else {
                 let parts: Vec<&str> = s.split("..").collect();
                 if parts.len() != 2 {
-                    eprint!("Invalid argument for --include: {}", m);
-                    return;
+                    return Err(format!("Invalid argument for --include: {}", m).into());
                 }
                 let start = parse_book_abbrev(parts[0]);
                 let end = parse_book_abbrev(parts[1]);
                 if start.is_none() || end.is_none() {
-                    eprint!("Invalid range for --include: {}", m);
-                    return;
+                    return Err(format!("Invalid range for --include: {}", m).into());
                 }
                 let start = start.unwrap() as u32;
                 let end = end.unwrap() as u32;
                 if end < start {
-                    eprint!(
+                    return Err(format!(
                         "Invalid range for --include: {}. {} is after {}",
                         m, parts[0], parts[1]
-                    );
-                    return;
+                    )
+                    .into());
                 }
                 range = (start + 1)..=(end + 1);
             }
@@ -124,21 +137,18 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
             // It should be an individual book or a chapter
             let book = parse_book_abbrev(s);
             if book.is_none() {
-                eprint!("Invalid value for --include: {}.", m);
-                return;
+                return Err(format!("Invalid value for --include: {}.", m).into());
             }
             let book = (book.unwrap() + 1) as u32;
             if s.contains(" ") {
                 // Chapter reference
                 let parts: Vec<&str> = s.split(" ").collect();
                 if parts.len() != 2 {
-                    eprint!("Invalid argument for --include: {}", m);
-                    return;
+                    return Err(format!("Invalid argument for --include: {}", m).into());
                 }
                 let chapter = parts[1].parse::<u32>();
                 if chapter.is_err() {
-                    eprint!("Invalid chapter in arg for --include: {}", m);
-                    return;
+                    return Err(format!("Invalid chapter in arg for --include: {}", m).into());
                 }
                 let chapter = chapter.unwrap();
                 let is_book_included = book_filters.iter().fold(true, |acc, f| f(acc, book));
@@ -193,8 +203,7 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
             s = &s[1..s.len() - 1];
             let regex = RegexBuilder::new(s).case_insensitive(ignore_case).build();
             if regex.is_err() {
-                eprint!("Invalid regexp in arg for --include: {}", s);
-                return;
+                return Err(format!("Invalid regexp in arg for --include: {}", s).into());
             }
             filter = Box::new(match_regex(regex.unwrap()));
         } else {
@@ -259,7 +268,14 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
                     continue;
                 }
                 if !params.count {
-                    println!("{} {}:{} {}", BOOK_ABBREVS[b as usize - 1], c, v, verse);
+                    oprintln!(
+                        output,
+                        "{} {}:{} {}",
+                        BOOK_ABBREVS[b as usize - 1],
+                        c,
+                        v,
+                        verse
+                    );
                 }
                 chapter_count += 1;
                 count += 1;
@@ -267,12 +283,62 @@ pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) {
             if params.count && chapter_count > 0 {
                 // Display count if count is above threshold
                 if params.threshold.is_none() || chapter_count >= params.threshold.unwrap() {
-                    println!("{} {}: {}", BOOK_ABBREVS[b as usize - 1], c, chapter_count);
+                    oprintln!(
+                        output,
+                        "{} {}: {}",
+                        BOOK_ABBREVS[b as usize - 1],
+                        c,
+                        chapter_count
+                    );
                 }
             }
         }
     }
     if params.count {
-        println!("Total: {}", count);
+        oprintln!(output, "Total: {}", count);
+    }
+    Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+
+    fn barfile() -> BARFile<File> {
+        BARFile::open("tests/data/KJV.ibar").unwrap()
+    }
+
+    #[test]
+    fn test_ps119_without_commandments() {
+        let params = SearchArgs {
+            matching: vec![
+                "!word",
+                "!commandment",
+                "!judgment",
+                "!law",
+                "!precept",
+                "!statute",
+                "!testimon",
+                "!ordinance",
+                "!way",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+            word: vec![],
+            include: vec!["Ps 119".to_string()],
+            count: false,
+            threshold: None,
+        };
+        let output = search_internal(barfile(), &params).unwrap();
+        assert_eq!(
+            output,
+            vec![
+                "Ps 119:90 Thy faithfulness is unto all generations: thou hast established the earth, and it abideth.",
+                "Ps 119:122 Be surety for thy servant for good: let not the proud oppress me.",
+                "Ps 119:132 Look thou upon me, and be merciful unto me, as thou usest to do unto those that love thy name."
+            ]
+        )
     }
 }
