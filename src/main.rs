@@ -1,6 +1,6 @@
 use biblearchive::BARFile;
 use biblearchive_utils::{Args, Command, details, search, verse};
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use std::fs;
 use std::process::exit;
 
@@ -63,12 +63,11 @@ fn main() {
             0
         }
         Some(Command::Verse { verses }) => verse(bar, verses),
-        Some(Command::Search(params)) => {
-            search(bar, params);
-            0
-        }
+        Some(Command::Search(params)) => search(bar, params),
         None => {
             eprintln!("No command specified.");
+            let mut cmd = Args::command().bin_name("bar");
+            let _ = cmd.print_help();
             1
         }
     };
