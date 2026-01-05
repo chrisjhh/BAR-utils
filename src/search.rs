@@ -52,19 +52,23 @@ fn match_regex(regex: Regex) -> impl Fn(&str) -> bool {
 }
 
 fn match_word(word: &str) -> Box<dyn Fn(&str) -> bool> {
+    match word_regexp(word) {
+        Some(re) => Box::new(match_regex(re)),
+        None => Box::new(|_| false),
+    }
+}
+
+fn word_regexp(word: &str) -> Option<Regex> {
     // Get rid of any non alpha-numerics
     let safe = word.replace(|c: char| !c.is_ascii_alphanumeric() && c != ' ', "");
     // If word is all lower-case assume we want case-insensitive search
     let ignore_case = safe.chars().all(|c| c.is_ascii_lowercase());
     // Convert to a regex that will match on word boundaries
     let regex = format!(r"\b{}\b", safe);
-    match RegexBuilder::new(&regex)
+    RegexBuilder::new(&regex)
         .case_insensitive(ignore_case)
         .build()
-    {
-        Ok(re) => Box::new(match_regex(re)),
-        Err(_) => Box::new(|_| false),
-    }
+        .ok()
 }
 
 pub fn search<T: Read + Seek>(bar: BARFile<T>, params: &SearchArgs) -> i32 {
@@ -239,6 +243,15 @@ fn search_internal<T: Read + Seek>(
     // Process the books, chapters and verses and find the matches
     // using the created filters
     let mut count = 0;
+    let mut word_count = 0;
+    // We should keep a wrod count (not just a verse count) if there is a single match to count
+    let should_word_count = params.count && params.word.len() == 1 && params.matching.len() == 0;
+    let word_matcher: Option<Regex> = if should_word_count {
+        let word = &params.word[0];
+        word_regexp(word)
+    } else {
+        None
+    };
     for book in bar.books_in_order() {
         let b = book.book_number() as u32;
         let should_proccess = book_filters.iter().fold(true, |acc, f| f(acc, b));
@@ -251,6 +264,7 @@ fn search_internal<T: Read + Seek>(
                 continue;
             }
             let mut chapter_count = 0;
+            let mut chapter_word_count = 0;
             let chapter = chapter.unwrap();
             let c = chapter.chapter_number() as u32;
             if let Some(filters) = book_chapt_filters {
@@ -279,23 +293,42 @@ fn search_internal<T: Read + Seek>(
                 }
                 chapter_count += 1;
                 count += 1;
+                if should_word_count && word_matcher.is_some() {
+                    let wc = word_matcher.as_ref().unwrap().find_iter(&verse).count();
+                    chapter_word_count += wc;
+                    word_count += wc;
+                }
             }
             if params.count && chapter_count > 0 {
                 // Display count if count is above threshold
-                if params.threshold.is_none() || chapter_count >= params.threshold.unwrap() {
+                if params.threshold.is_none()
+                    || chapter_count >= params.threshold.unwrap()
+                    || chapter_word_count as u32 >= params.threshold.unwrap()
+                {
+                    let extra = if should_word_count {
+                        format!(" (word count: {})", chapter_word_count)
+                    } else {
+                        "".to_string()
+                    };
                     oprintln!(
                         output,
-                        "{} {}: {}",
+                        "{} {}: {}{}",
                         BOOK_ABBREVS[b as usize - 1],
                         c,
-                        chapter_count
+                        chapter_count,
+                        extra
                     );
                 }
             }
         }
     }
     if params.count {
-        oprintln!(output, "Total: {}", count);
+        let extra = if should_word_count {
+            format!(" (word count: {})", word_count)
+        } else {
+            "".to_string()
+        };
+        oprintln!(output, "Total: {}{}", count, extra);
     }
     Ok(output)
 }
