@@ -1,5 +1,5 @@
 use super::SearchArgs;
-use bible_data::{BOOK_ABBREVS, parse_book_abbrev};
+use bible_data::{BOOK_ABBREVS, BibleBookOrChapter, parse_book_abbrev};
 use biblearchive::BARFile;
 use regex::{Regex, RegexBuilder};
 use std::{
@@ -139,51 +139,43 @@ fn search_internal<T: Read + Seek>(
             });
         } else {
             // It should be an individual book or a chapter
-            let book = parse_book_abbrev(s);
-            if book.is_none() {
-                return Err(format!("Invalid value for --include: {}.", m).into());
-            }
-            let book = (book.unwrap() + 1) as u32;
-            if s.contains(" ") {
-                // Chapter reference
-                let parts: Vec<&str> = s.split(" ").collect();
-                if parts.len() != 2 {
-                    return Err(format!("Invalid argument for --include: {}", m).into());
+            match BibleBookOrChapter::parse(s) {
+                Some(BibleBookOrChapter::Book(book)) => {
+                    book_filters.push(match is_exclude {
+                        true => Box::new(exclude_item(book.book_number())),
+                        false => Box::new(include_item(book.book_number())),
+                    });
                 }
-                let chapter = parts[1].parse::<u32>();
-                if chapter.is_err() {
-                    return Err(format!("Invalid chapter in arg for --include: {}", m).into());
-                }
-                let chapter = chapter.unwrap();
-                let is_book_included = book_filters.iter().fold(true, |acc, f| f(acc, book));
-                if !is_book_included && !is_exclude {
-                    // We want to include a chapter from a book that is currently excluded
-                    // First we need to include the book
-                    book_filters.push(Box::new(include_item(book)));
-                } else if !is_book_included {
-                    // No need to exclude chapter from book that is already excluded
-                    continue;
-                }
-                let mut filters = chapter_filters.get_mut(&book);
-                if filters.is_none() {
-                    let mut new_filters: Vec<Box<dyn Fn(bool, u32) -> bool>> = Vec::new();
-                    if !is_exclude {
-                        // If first filter is an include assume everything is initially excluded
-                        new_filters.push(Box::new(exclude_all()));
+                Some(BibleBookOrChapter::Chapter(chapt)) => {
+                    let book = chapt.book.book_number();
+                    let chapter = chapt.chapter as u32;
+                    let is_book_included = book_filters.iter().fold(true, |acc, f| f(acc, book));
+                    if !is_book_included && !is_exclude {
+                        // We want to include a chapter from a book that is currently excluded
+                        // First we need to include the book
+                        book_filters.push(Box::new(include_item(book)));
+                    } else if !is_book_included {
+                        // No need to exclude chapter from book that is already excluded
+                        continue;
                     }
-                    chapter_filters.insert(book, new_filters);
-                    filters = chapter_filters.get_mut(&book);
+                    let mut filters = chapter_filters.get_mut(&book);
+                    if filters.is_none() {
+                        let mut new_filters: Vec<Box<dyn Fn(bool, u32) -> bool>> = Vec::new();
+                        if !is_exclude {
+                            // If first filter is an include assume everything is initially excluded
+                            new_filters.push(Box::new(exclude_all()));
+                        }
+                        chapter_filters.insert(book, new_filters);
+                        filters = chapter_filters.get_mut(&book);
+                    }
+                    let filters = &mut filters.unwrap();
+                    filters.push(match is_exclude {
+                        true => Box::new(exclude_item(chapter)),
+                        false => Box::new(include_item(chapter)),
+                    });
                 }
-                let filters = &mut filters.unwrap();
-                filters.push(match is_exclude {
-                    true => Box::new(exclude_item(chapter)),
-                    false => Box::new(include_item(chapter)),
-                });
+                _ => return Err(format!("Invalid value for --include: {}.", m).into()),
             }
-            book_filters.push(match is_exclude {
-                true => Box::new(exclude_item(book)),
-                false => Box::new(include_item(book)),
-            });
         }
     }
 
@@ -392,6 +384,27 @@ mod tests {
                 "Ps 119:164 Seven times a day do I praise thee because of thy righteous judgments.",
                 "Ps 119:171 My lips shall utter praise, when thou hast taught me thy statutes.",
                 "Ps 119:175 Let my soul live, and it shall praise thee; and let thy judgments help me."
+            ]
+        )
+    }
+
+    #[test]
+    fn test_count_sevens() {
+        let params = SearchArgs {
+            matching: vec![],
+            word: vec!["seven".to_string()],
+            include: vec!["NT".to_string()],
+            count: true,
+            threshold: Some(7),
+        };
+        let output = search_internal(barfile(), &params).unwrap();
+        assert_eq!(
+            output,
+            vec![
+                "Rev 1: 6 (word count: 12)",
+                "Rev 15: 4 (word count: 8)",
+                "Rev 17: 6 (word count: 8)",
+                "Total: 65 (word count: 91)"
             ]
         )
     }
