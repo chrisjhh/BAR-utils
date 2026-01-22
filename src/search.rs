@@ -408,4 +408,23 @@ mod tests {
             ]
         )
     }
+
+    #[test]
+    fn test_establish_regex_range() {
+        let params = SearchArgs {
+            matching: vec!["/establish(ed|ing)?/".to_string()],
+            word: vec![],
+            include: vec!["Mt..Jn".to_string(), "1Pe..2Pe".to_string()],
+            count: false,
+            threshold: None,
+        };
+        let output = search_internal(barfile(), &params).unwrap();
+        assert_eq!(
+            output,
+            vec![
+                "Mt 18:17 But if he will not hear thee, then take with thee one or two more, that in the mouth of two or three witnesses every word may be established.",
+                "2Pe 1:12 Wherefore I will not be negligent to put you always in remembrance of these things, though ye know them, and be established in the present truth.",
+            ]
+        )
+    }
 }
